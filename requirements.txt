@@ -1,0 +1,7 @@
+# PlexConnect runs on the Python 3 standard library alone.
+# Pillow is optional: without it, fanart background generation is disabled
+# (PILBackgrounds.isPILinstalled() returns False) but everything else works.
+Pillow
+
+# Windows only, for running PlexConnect as a Windows service (PlexConnect_WinService.py).
+pywin32; sys_platform == 'win32'

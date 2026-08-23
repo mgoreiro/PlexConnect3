@@ -3,7 +3,7 @@
 import sys
 from os import sep, makedirs
 from os.path import isdir
-import ConfigParser
+import configparser
 import re
 
 from Debug import *  # dprint()
@@ -29,14 +29,14 @@ g_settings = [
     \
     ('enable_dnsserver', ('True', '((True)|(False))')),
     ('port_dnsserver'  , ('53', '[0-9]{1,5}')),
-    ('ip_dnsmaster'    , ('8.8.8.8', '([0-9]{1,3}\.){3}[0-9]{1,3}')),
+    ('ip_dnsmaster'    , ('8.8.8.8', r'([0-9]{1,3}\.){3}[0-9]{1,3}')),
     ('prevent_atv_update'           , ('True', '((True)|(False))')),
     ('intercept_atv_icon'           , ('True', '((True)|(False))')),
     \
     ('enable_plexconnect_autodetect', ('True', '((True)|(False))')),
-    ('ip_plexconnect'  , ('0.0.0.0', '([0-9]{1,3}\.){3}[0-9]{1,3}')),
+    ('ip_plexconnect'  , ('0.0.0.0', r'([0-9]{1,3}\.){3}[0-9]{1,3}')),
     ('use_custom_dns_bind_ip'   , ('False', '((True)|(False))')),
-    ('custom_dns_bind_ip'  , ('0.0.0.0', '([0-9]{1,3}\.){3}[0-9]{1,3}')),
+    ('custom_dns_bind_ip'  , ('0.0.0.0', r'([0-9]{1,3}\.){3}[0-9]{1,3}')),
     \
     ('hosttointercept' , ('trailers.apple.com', '[a-zA-Z0-9_.-]+')),
     ('icon', ('movie-trailers', '[a-zA-Z0-9_.-]+')),
@@ -60,7 +60,7 @@ g_settings = [
 class CSettings():
     def __init__(self, path):
         dprint(__name__, 1, "init class CSettings")
-        self.cfg = ConfigParser.SafeConfigParser()
+        self.cfg = configparser.ConfigParser()
         self.section = 'PlexConnect'
         self.path = path
 
@@ -81,7 +81,7 @@ class CSettings():
     
     def saveSettings(self):
         dprint(__name__, 1, "save settings")
-        f = open(self.getSettingsFile(), 'wb')
+        f = open(self.getSettingsFile(), 'w')
         self.cfg.write(f)
         f.close()
     
@@ -112,7 +112,7 @@ class CSettings():
                 self.cfg.set(self.section, opt, dflt)
                 dprint(__name__, 0, "add setting {0}={1}", opt, dflt)
             
-            elif not re.search('\A'+vldt+'\Z', setting):
+            elif not re.search(r'\A'+vldt+r'\Z', setting):
                 # check settings - default if unknown
                 modify = True
                 self.cfg.set(self.section, opt, dflt)
@@ -132,12 +132,12 @@ class CSettings():
 
 
 if __name__=="__main__":
-    Settings = CSettings()
-    
+    Settings = CSettings('.')
+
     option = 'enable_plexgdm'
-    print Settings.getSetting(option)
-    
+    print(Settings.getSetting(option))
+
     option = 'enable_dnsserver'
-    print Settings.getSetting(option)
-    
+    print(Settings.getSetting(option))
+
     del Settings

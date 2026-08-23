@@ -33,7 +33,7 @@ def pickLanguage(languages):
         'zh_CN': 'zh_Hans'
     }
     
-    languages = re.findall('(\w{2}(?:[-_]\w{2,})?)(?:;q=(\d+(?:\.\d+)?))?', languages)
+    languages = re.findall(r'(\w{2}(?:[-_]\w{2,})?)(?:;q=(\d+(?:\.\d+)?))?', languages)
     languages = [(lang.replace('-', '_'), float(quot) if quot else 1.) for (lang, quot) in languages]
     languages = [(language_aliases.get(lang, lang), quot) for (lang, quot) in languages]
     languages = sorted(languages, key=itemgetter(1), reverse=True)
@@ -49,7 +49,7 @@ def pickLanguage(languages):
 def replaceTEXT(textcontent, language):
     translation = getTranslation(language)
     for msgid in set(re.findall(r'\{\{TEXT\((.+?)\)\}\}', textcontent)):
-        msgstr = translation.ugettext(msgid).replace('\"', '\\\"')
+        msgstr = translation.gettext(msgid).replace('\"', '\\\"')
         textcontent = textcontent.replace('{{TEXT(%s)}}' % msgid, msgstr)
     return textcontent
 
@@ -60,10 +60,10 @@ if __name__=="__main__":
     language = pickLanguage(languages)
     
     Text = "Hello World"  # doesn't translate
-    print getTranslation(language).ugettext(Text)
-    
+    print(getTranslation(language).gettext(Text))
+
     Text = "Library"  # translates
-    print getTranslation(language).ugettext(Text)
-    
+    print(getTranslation(language).gettext(Text))
+
     Text = "{{TEXT(Channels)}}"  # translates
-    print replaceTEXT(Text, language).encode('ascii', 'replace')
+    print(replaceTEXT(Text, language))

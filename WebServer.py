@@ -14,13 +14,13 @@ Thanks to reaperhulk for showing this solution!
 
 
 import sys
-import string, cgi, time
+import time
 from os import sep, path
-from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
-from SocketServer import ThreadingMixIn
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
 import ssl
 from multiprocessing import Pipe  # inter process communication
-import urllib, StringIO, gzip
+import urllib.request, urllib.parse, io, gzip
 import signal
 import traceback
 
@@ -70,19 +70,23 @@ class MyHandler(BaseHTTPRequestHandler):
       pass
     
     def compress(self, data):
-        buf = StringIO.StringIO()
+        buf = io.BytesIO()
         zfile = gzip.GzipFile(mode='wb',  fileobj=buf, compresslevel=9)
         zfile.write(data)
         zfile.close()
         return buf.getvalue()
-    
+
     def sendResponse(self, data, type, enableGzip):
+        if isinstance(data, str):
+            data = data.encode('utf-8')
+
         self.send_response(200)
         self.send_header('Server', 'PlexConnect')
         self.send_header('Content-type', type)
-        try:
-            accept_encoding = map(string.strip, string.split(self.headers["accept-encoding"], ","))
-        except KeyError:
+        accept_encoding_header = self.headers.get("accept-encoding")
+        if accept_encoding_header:
+            accept_encoding = [enc.strip() for enc in accept_encoding_header.split(",")]
+        else:
             accept_encoding = []
         if enableGzip and \
            g_param['CSettings'].getSetting('allow_gzip_atv')=='True' and \
@@ -104,7 +108,7 @@ class MyHandler(BaseHTTPRequestHandler):
             PMSaddress = ''
             pms_end = self.path.find(')')
             if self.path.startswith('/PMS(') and pms_end>-1:
-                PMSaddress = urllib.unquote_plus(self.path[5:pms_end])
+                PMSaddress = urllib.parse.unquote_plus(self.path[5:pms_end])
                 self.path = self.path[pms_end+1:]
             
             # break up path, separate PlexConnect options
@@ -128,7 +132,7 @@ class MyHandler(BaseHTTPRequestHandler):
                         if len(opt)==1:
                             options[opt[0]] = ''
                         else:
-                            options[opt[0]] = urllib.unquote(opt[1])
+                            options[opt[0]] = urllib.parse.unquote(opt[1])
                     else:
                         # recreate query string (non-PlexConnect) - has to be merged back when forwarded
                         if query=='':
@@ -213,7 +217,7 @@ class MyHandler(BaseHTTPRequestHandler):
                         dprint(__name__, 1, "serving "+self.headers['Host']+self.path+" with "+resource)
                         r = open(resource, "rb")
                     else:
-                        r = urllib.urlopen('http://'+resource)
+                        r = urllib.request.urlopen('http://'+resource)
                     self.sendResponse(r.read(), 'image/png', False)
                     r.close()
                     return
@@ -289,7 +293,7 @@ def Run(cmdPipe, param):
     try:
         server = ThreadedHTTPServer((cfg_IP_WebServer,int(cfg_Port_WebServer)), MyHandler)
         server.timeout = 1
-    except Exception, e:
+    except Exception as e:
         dprint(__name__, 0, "Failed to connect to HTTP on {0} port {1}: {2}", cfg_IP_WebServer, cfg_Port_WebServer, e)
         sys.exit(1)
     
@@ -349,9 +353,11 @@ def Run_SSL(cmdPipe, param):
     
     try:
         server = ThreadedHTTPServer((cfg_IP_WebServer,int(cfg_Port_SSL)), MyHandler)
-        server.socket = ssl.wrap_socket(server.socket, certfile=cfg_certfile, server_side=True)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(certfile=cfg_certfile)
+        server.socket = context.wrap_socket(server.socket, server_side=True)
         server.timeout = 1
-    except Exception, e:
+    except Exception as e:
         dprint(__name__, 0, "Failed to connect to HTTPS on {0} port {1}: {2}", cfg_IP_WebServer, cfg_Port_SSL, e)
         sys.exit(1)
     
@@ -388,10 +394,10 @@ def Run_SSL(cmdPipe, param):
 if __name__=="__main__":
     cmdPipe = Pipe()
     
-    cfg = Settings.CSettings()
+    cfg = Settings.CSettings('.')
     param = {}
     param['CSettings'] = cfg
-    param['CATVSettings'] = ATVSettings.CATVSettings()
+    param['CATVSettings'] = ATVSettings.CATVSettings('.')
     
     param['IP_self'] = '192.168.178.20'  # IP_self?
     param['baseURL'] = 'http://'+ param['IP_self'] +':'+ cfg.getSetting('port_webserver')

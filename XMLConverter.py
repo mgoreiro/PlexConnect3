@@ -19,8 +19,8 @@ http://trailers.apple.com/appletv/us/nav.xml
 import os
 import sys
 import traceback
-import inspect 
-import string, random
+import inspect
+import random
 import copy  # deepcopy()
 
 import json
@@ -32,9 +32,8 @@ except ImportError:
     import xml.etree.ElementTree as etree
 
 import time, uuid, hmac, hashlib, base64
-from urllib import quote_plus, unquote_plus, urlencode
-import urllib2
-import urlparse
+from urllib.parse import quote_plus, unquote_plus, urlencode, parse_qs
+import urllib.request
 
 from Version import __VERSION__  # for {{EVAL()}}, display in settings page
 import Settings, ATVSettings
@@ -217,22 +216,22 @@ def XML_PMS2aTV(PMS_address, path, options):
     
     elif cmd=='PlayTrailer':
         trailerID = options['PlexConnectTrailerID']
-        info = urllib2.urlopen("https://youtube.com/get_video_info?html5=1&video_id=" + trailerID).read()
-        parsed = urlparse.parse_qs(info)
+        info = urllib.request.urlopen("https://youtube.com/get_video_info?html5=1&video_id=" + trailerID).read().decode("utf-8")
+        parsed = parse_qs(info)
         
         key = 'player_response'
         if not key in parsed:
             return XML_Error('PlexConnect', 'Youtube: No Trailer Info available')
         streams_dict = json.loads(parsed[key][0])
-	streams = streams_dict['streamingData']['formats']
+        streams = streams_dict['streamingData']['formats']
         
         url = ''
         for i in range(len(streams)):
             stream = streams[i]
-	    # 18: "medium", 22: hd720
+            # 18: "medium", 22: hd720
             if stream['itag'] == 18:
                 url = stream['url']
-	    # if there is also a "22" (720p) stream, let's upgrade to that one
+            # if there is also a "22" (720p) stream, let's upgrade to that one
             if stream['itag'] == 22:
                 url = stream['url']
         if url == '':
@@ -739,7 +738,7 @@ class CCommandHelper():
     
     def applyConversion(self, val, convlist):
         # apply string conversion
-	encodedval = val.replace(" ", "+")
+        encodedval = val.replace(" ", "+")
         if convlist!=[]:
             for part in reversed(sorted(convlist)):
                 if encodedval>=part[0]:
@@ -764,7 +763,7 @@ class CCommandHelper():
         return val
     
     def _(self, msgid):
-        return Localize.getTranslation(self.options['aTVLanguage']).ugettext(msgid)
+        return Localize.getTranslation(self.options['aTVLanguage']).gettext(msgid)
 
 
 
@@ -1011,7 +1010,7 @@ class CCommandCollection(CCommandHelper):
         conv, leftover = self.getConversion(src, leftover)
         if not dfltd:
             key = self.applyConversion(key, conv)
-        return quote_plus(unicode(key).encode("utf-8"))
+        return quote_plus(str(key).encode("utf-8"))
 
     def ATTRIB_SETTING(self, src, srcXML, param):
         opt, leftover = self.getParam(src, param)
@@ -1050,8 +1049,8 @@ class CCommandCollection(CCommandHelper):
         transcoderAction = g_ATVSettings.getSetting(self.ATV_udid, 'phototranscoderaction')
         
         # image orientation
-	orientation, leftover, dfltd = self.getKey(src, srcXML, 'Media/Part/orientation')
-	normalOrientation = (not orientation) or orientation=='1'
+        orientation, leftover, dfltd = self.getKey(src, srcXML, 'Media/Part/orientation')
+        normalOrientation = (not orientation) or orientation=='1'
         
         # aTV native filetypes
         parts = key.rsplit('.',1)
@@ -1195,7 +1194,7 @@ class CCommandCollection(CCommandHelper):
         if Media!=None:
             # transcoder action
             transcoderAction = g_ATVSettings.getSetting(self.ATV_udid, 'transcoderaction')
-	    # transcoderAction = "Transcode"
+            # transcoderAction = "Transcode"
             
             # video format
             #    HTTP live stream
@@ -1207,10 +1206,10 @@ class CCommandCollection(CCommandHelper):
                 Media.get('videoCodec','-') in ("mpeg4", "h264", "drmi") and \
                 Media.get('audioCodec','-') in ("aac", "drms")   # remove AC3 when Dolby Digital is Off
 
-	    # determine if Dolby Digital is active
-	    DolbyDigital = g_ATVSettings.getSetting(self.ATV_udid, 'dolbydigital')
-	    if DolbyDigital=='On':
-		self.options['DolbyDigital'] = True
+            # determine if Dolby Digital is active
+            DolbyDigital = g_ATVSettings.getSetting(self.ATV_udid, 'dolbydigital')
+            if DolbyDigital=='On':
+                self.options['DolbyDigital'] = True
                 videoATVNative = \
                     Media.get('protocol','-') in ("hls") \
                     or \
@@ -1333,20 +1332,20 @@ class CCommandCollection(CCommandHelper):
         type, leftover, dfltd = self.getKey(src, srcXML, param)
         duration, leftover, dfltd = self.getKey(src, srcXML, leftover)
         if type == 'Video':
-            min = int(duration)/1000/60
+            min = int(duration)//1000//60
             if g_ATVSettings.getSetting(self.ATV_udid, 'durationformat') == 'Minutes':
                 return self._("{0:d} Minutes").format(min)
             else:
                 if len(duration) > 0:
-                    hour = min/60
+                    hour = min//60
                     min = min%60
                     if hour == 0: return self._("{0:d} Minutes").format(min)
                     else: return self._("{0:d}hr {1:d}min").format(hour, min)
-        
+
         if type == 'Audio':
-            secs = int(duration)/1000
+            secs = int(duration)//1000
             if len(duration) > 0:
-                mins = secs/60
+                mins = secs//60
                 secs = secs%60
                 return self._("{0:d}:{1:0>2d}").format(mins, secs)
         
@@ -1407,27 +1406,27 @@ class CCommandCollection(CCommandHelper):
 
 
 if __name__=="__main__":
-    cfg = Settings.CSettings()
+    cfg = Settings.CSettings('.')
     param = {}
     param['CSettings'] = cfg
 
     param['HostToIntercept'] = cfg.getSetting('hosttointercept')
     setParams(param)
-    
-    cfg = ATVSettings.CATVSettings()
+
+    cfg = ATVSettings.CATVSettings('.')
     setATVSettings(cfg)
-    
-    print "load PMS XML"
+
+    print("load PMS XML")
     _XML = '<PMS number="1" string="Hello"> \
                 <DATA number="42" string="World"></DATA> \
                 <DATA string="Sun"></DATA> \
             </PMS>'
     PMSroot = etree.fromstring(_XML)
     PMSTree = etree.ElementTree(PMSroot)
-    print prettyXML(PMSroot)
-    
-    print
-    print "load aTV XML template"
+    print(prettyXML(PMSroot))
+
+    print()
+    print("load aTV XML template")
     _XML = '<aTV> \
                 <INFO num="{{VAL(number)}}" str="{{VAL(string)}}">Info</INFO> \
                 <FILE str="{{VAL(string)}}" strconv="{{VAL(string::World=big|Moon=small|Sun=huge)}}" num="{{VAL(number:5)}}" numfunc="{{EVAL(int({{VAL(number:5)}}/10))}}"> \
@@ -1443,10 +1442,10 @@ if __name__=="__main__":
             </aTV>'
     aTVroot = etree.fromstring(_XML)
     aTVTree = etree.ElementTree(aTVroot)
-    print prettyXML(aTVroot)
-    
-    print
-    print "unpack PlexConnect COPY/CUT commands"
+    print(prettyXML(aTVroot))
+
+    print()
+    print("unpack PlexConnect COPY/CUT commands")
     options = {}
     options['PlexConnectUDID'] = '007'
     PMS_address = 'PMS_IP'
@@ -1454,16 +1453,16 @@ if __name__=="__main__":
     XML_ExpandTree(CommandCollection, aTVroot, PMSroot, 'main')
     XML_ExpandAllAttrib(CommandCollection, aTVroot, PMSroot, 'main')
     del CommandCollection
-    
-    print
-    print "resulting aTV XML"
-    print prettyXML(aTVroot)
-    
-    print
-    #print "store aTV XML"
+
+    print()
+    print("resulting aTV XML")
+    print(prettyXML(aTVroot))
+
+    print()
+    #print("store aTV XML")
     #str = prettyXML(aTVTree)
     #f=open(sys.path[0]+'/XML/aTV_fromTmpl.xml', 'w')
     #f.write(str)
     #f.close()
-    
+
     del cfg

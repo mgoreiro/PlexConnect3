@@ -32,9 +32,9 @@ http://stackoverflow.com/questions/111945/is-there-any-way-to-do-http-put-in-pyt
 import sys
 import struct
 import time
-import urllib2, httplib, socket, StringIO, gzip
+import urllib.request, urllib.error, http.client, socket, io, gzip
 from threading import Thread
-import Queue
+import queue
 import traceback
 
 try:
@@ -42,7 +42,7 @@ try:
 except ImportError:
     import xml.etree.ElementTree as etree
 
-from urllib import urlencode, quote_plus
+from urllib.parse import urlencode, quote_plus
 
 from Version import __VERSION__
 from Debug import *  # dprint(), prettyXML()
@@ -139,7 +139,7 @@ result:
 """
 IP_PlexGDM = '239.0.0.250'  # multicast to PMS
 Port_PlexGDM = 32414
-Msg_PlexGDM = 'M-SEARCH * HTTP/1.0'
+Msg_PlexGDM = b'M-SEARCH * HTTP/1.0'
 
 def PlexGDM():
     dprint(__name__, 0, "***")
@@ -164,6 +164,7 @@ def PlexGDM():
         while True:
             try:
                 data, server = GDM.recvfrom(1024)
+                data = data.decode('utf-8', 'replace')
                 dprint(__name__, 1, "Received data from {0}", server)
                 dprint(__name__, 1, "Data received:\n {0}", data)
                 returnData.append( { 'from' : server,
@@ -194,7 +195,7 @@ def PlexGDM():
                     elif "Resource-Identifier:" in each:
                         update['uuid'] = each.split(':')[1].strip()
                     elif "Name:" in each:
-                        update['serverName'] = each.split(':')[1].strip().decode('utf-8', 'replace')  # store in utf-8
+                        update['serverName'] = each.split(':')[1].strip()  # already utf-8 (str)
                     elif "Port:" in each:
                         update['port'] = each.split(':')[1].strip()
                     elif "Updated-At:" in each:
@@ -318,11 +319,11 @@ def getPMSListFromMyPlex(ATV_udid, authtoken):
     if XML==False:
         pass  # no data from MyPlex
     else:
-        queue = Queue.Queue()
+        q = queue.Queue()
         threads = []
         PMSsPoked = 0
-        
-        for Dir in XML.getiterator('Device'):
+
+        for Dir in XML.iter('Device'):
             if Dir.get('product','') == "Plex Media Server" and Dir.get('provides','') == "server":
                 uuid = Dir.get('clientIdentifier')
                 name = Dir.get('name')
@@ -335,25 +336,28 @@ def getPMSListFromMyPlex(ATV_udid, authtoken):
                 PMSsPoked +=1
                 
                 # multiple connection possible - poke either one, fastest response wins
-                for Con in Dir.getiterator('Connection'):
+                for Con in Dir.iter('Connection'):
                     protocol = Con.get('protocol')
                     ip = Con.get('address')
                     port = Con.get('port')
                     uri = Con.get('uri')
                     local = Con.get('local')
-                    
-                    # change protocol and uri if in local
-                    if local == "1":
+
+                    # for local connections, keep whatever the PMS/plex.tv advertised
+                    # (respects HTTPS via *.plex.direct when "Secure connections" is
+                    # enabled on the server); only fall back to plain http://ip:port
+                    # if no URI was advertised at all.
+                    if local == "1" and not uri:
                         protocol = "http"
                         uri = protocol + "://" + ip + ":" + port
-                                        
+
                     # poke PMS, own thread for each poke
                     PMSInfo = { 'uuid': uuid, 'name': name, 'token': token, 'owned': owned, 'local': local, \
                             'protocol': protocol, 'ip': ip, 'port': port, 'uri': uri }
                     PMS = { 'baseURL': uri, 'path': '/', 'options': None, 'token': token, \
                             'data': PMSInfo }
                     dprint(__name__, 0, "poke {0} ({1}) at {2}", name, uuid, uri)
-                    t = Thread(target=getXMLFromPMSToQueue, args=(PMS, queue))
+                    t = Thread(target=getXMLFromPMSToQueue, args=(PMS, q))
                     t.start()
                     threads.append(t)
         
@@ -366,12 +370,12 @@ def getPMSListFromMyPlex(ATV_udid, authtoken):
             # check for "living" threads - basically a manual t.join()
             ThreadsAlive = 0
             for t in threads:
-                if t.isAlive():
+                if t.is_alive():
                     ThreadsAlive += 1
-            
+
             # analyse PMS/http response - declare new PMS
-            if not queue.empty():
-                (PMSInfo, PMS) = queue.get()
+            if not q.empty():
+                (PMSInfo, PMS) = q.get()
                 
                 if PMS==False:
                     # communication error - skip this connection
@@ -441,16 +445,16 @@ def getXMLFromPMS(baseURL, path, options={}, authtoken='', enableGzip=False):
         dprint(__name__, 1, 'Custom method ' + method)
         method = options['PlexConnectMethod']
     
-    request = urllib2.Request(baseURL+path , None, xargs)
+    request = urllib.request.Request(baseURL+path , None, xargs)
     request.add_header('User-agent', 'PlexConnect')
 
     request.get_method = lambda: method
     if enableGzip:
         request.add_header('Accept-encoding', 'gzip')
-    
+
     try:
-        response = urllib2.urlopen(request, timeout=20)
-    except (urllib2.URLError, httplib.HTTPException) as e:
+        response = urllib.request.urlopen(request, timeout=20)
+    except (urllib.error.URLError, http.client.HTTPException) as e:
         dprint(__name__, 1, 'No Response from Plex Media Server')
         if hasattr(e, 'reason'):
             dprint(__name__, 1, "We failed to reach a server. Reason: {0}", e.reason)
@@ -463,7 +467,7 @@ def getXMLFromPMS(baseURL, path, options={}, authtoken='', enableGzip=False):
         return False
     
     if response.info().get('Content-Encoding') == 'gzip':
-        buf = StringIO.StringIO(response.read())
+        buf = io.BytesIO(response.read())
         file = gzip.GzipFile(fileobj=buf)
         XML = etree.parse(file)
     else:
@@ -522,7 +526,7 @@ result:
     XML
 """
 def getXMLFromMultiplePMS(ATV_udid, path, type, options={}):
-    queue = Queue.Queue()
+    q = queue.Queue()
     threads = []
     
     root = etree.Element("MediaConverter")
@@ -551,17 +555,17 @@ def getXMLFromMultiplePMS(ATV_udid, path, type, options={}):
             # request XMLs, one thread for each
             PMS = { 'baseURL':baseURL, 'path':path, 'options':options, 'token':token, \
                     'data': {'uuid': uuid, 'Server': Server} }
-            t = Thread(target=getXMLFromPMSToQueue, args=(PMS, queue))
+            t = Thread(target=getXMLFromPMSToQueue, args=(PMS, q))
             t.start()
             threads.append(t)
-    
+
     # wait for requests being answered
     for t in threads:
         t.join()
-    
+
     # add new data to root XML, individual Server
-    while not queue.empty():
-            (data, XML) = queue.get()
+    while not q.empty():
+            (data, XML) = q.get()
             uuid = data['uuid']
             Server = data['Server']
 
@@ -574,7 +578,7 @@ def getXMLFromMultiplePMS(ATV_udid, path, type, options={}):
             else:
                 Server.set('size',    XML.getroot().get('size', '0'))
                 
-                for Dir in XML.getiterator('Directory'):  # copy "Directory" content, add PMS to links
+                for Dir in XML.iter('Directory'):  # copy "Directory" content, add PMS to links
 
                     if Dir.get('key') is not None and (Dir.get('agent') is not None or Dir.get('share') is not None):
                         key = Dir.get('key')  # absolute path
@@ -588,7 +592,7 @@ def getXMLFromMultiplePMS(ATV_udid, path, type, options={}):
                         Server.append(Dir)
                     elif Dir.get('title') == 'Live TV & DVR':
                         mp = None
-                        for MediaProvider in XML.getiterator('MediaProvider'):
+                        for MediaProvider in XML.iter('MediaProvider'):
                             if MediaProvider.get('protocols') == 'livetv':
                                 mp = MediaProvider
                                 break
@@ -600,14 +604,14 @@ def getXMLFromMultiplePMS(ATV_udid, path, type, options={}):
                             Dir.set('thumbType', 'video')
                             Server.append(Dir)
                             
-                for Playlist in XML.getiterator('Playlist'):  # copy "Playlist" content, add PMS to links
+                for Playlist in XML.iter('Playlist'):  # copy "Playlist" content, add PMS to links
                     key = Playlist.get('key')  # absolute path
                     Playlist.set('key',    PMS_mark + getURL('', path, key))
                     if 'composite' in Playlist.attrib:
                         Playlist.set('composite', PMS_mark + getURL('', path, Playlist.get('composite')))
                     Server.append(Playlist)
                 
-                for Video in XML.getiterator('Video'):  # copy "Video" content, add PMS to links
+                for Video in XML.iter('Video'):  # copy "Video" content, add PMS to links
                     key = Video.get('key')  # absolute path
                     Video.set('key',    PMS_mark + getURL('', path, key))
                     if 'thumb' in Video.attrib:
@@ -667,32 +671,22 @@ def MyPlexSignIn(username, password, options):
     
     # create POST request
     xargs = getXArgsDeviceInfo(options)
-    request = urllib2.Request(MyPlexURL, None, xargs)
+    request = urllib.request.Request(MyPlexURL, None, xargs)
     request.get_method = lambda: 'POST'  # turn into 'POST' - done automatically with data!=None. But we don't have data.
-    
-    # no certificate, will fail with "401 - Authentification required"
-    """
-    try:
-        f = urllib2.urlopen(request)
-    except urllib2.HTTPError, e:
-        print e.headers
-        print "has WWW_Authenticate:", e.headers.has_key('WWW-Authenticate')
-        print
-    """
-    
+
     # provide credentials
     ### optional... when 'realm' is unknown
-    ##passmanager = urllib2.HTTPPasswordMgrWithDefaultRealm()
+    ##passmanager = urllib.request.HTTPPasswordMgrWithDefaultRealm()
     ##passmanager.add_password(None, address, username, password)  # None: default "realm"
-    passmanager = urllib2.HTTPPasswordMgr()
+    passmanager = urllib.request.HTTPPasswordMgr()
     passmanager.add_password(MyPlexHost, MyPlexURL, username, password)  # realm = 'plex.tv'
-    authhandler = urllib2.HTTPBasicAuthHandler(passmanager)
-    urlopener = urllib2.build_opener(authhandler)
-    
+    authhandler = urllib.request.HTTPBasicAuthHandler(passmanager)
+    urlopener = urllib.request.build_opener(authhandler)
+
     # sign in, get MyPlex response
     try:
         response = urlopener.open(request).read()
-    except urllib2.HTTPError, e:
+    except urllib.error.HTTPError as e:
         if e.code==401:
             dprint(__name__, 0, 'Authentication failed')
             return ('', '')
@@ -726,14 +720,14 @@ def MyPlexSignOut(authtoken):
     # MyPlex web address
     MyPlexHost = 'plex.tv'
     MyPlexSignOutPath = '/api/v2/users/signout'
-    MyPlexURL = 'http://' + MyPlexHost + MyPlexSignOutPath
-    
+    MyPlexURL = 'https://' + MyPlexHost + MyPlexSignOutPath
+
     # create POST request
     xargs = { 'X-Plex-Token': authtoken }
-    request = urllib2.Request(MyPlexURL, None, xargs)
+    request = urllib.request.Request(MyPlexURL, None, xargs)
     request.get_method = lambda: 'DELETE'  # turn into 'DELETE' - done automatically with data!=None. But we don't have data.
-    
-    response = urllib2.urlopen(request).read()
+
+    response = urllib.request.urlopen(request).read()
     
     dprint(__name__, 1, "====== MyPlex sign out XML ======")
     dprint(__name__, 1, response)
@@ -754,11 +748,11 @@ def MyPlexSwitchHomeUser(id, pin, options, authtoken):
         xargs = getXArgsDeviceInfo(options)
     xargs['X-Plex-Token'] = authtoken
     
-    request = urllib2.Request(MyPlexURL, None, xargs)
+    request = urllib.request.Request(MyPlexURL, None, xargs)
     request.get_method = lambda: 'POST'  # turn into 'POST' - done automatically with data!=None. But we don't have data.
-    
-    response = urllib2.urlopen(request).read()
-    
+
+    response = urllib.request.urlopen(request).read()
+
     dprint(__name__, 1, "====== MyPlexHomeUser XML ======")
     dprint(__name__, 1, response)
     dprint(__name__, 1, "====== MyPlexHomeUser XML finished ======")

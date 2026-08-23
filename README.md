@@ -19,8 +19,21 @@ The basic idea is, to...
 
 
 ## Requirements
-- Python 2.6.x with minor issues: ElementTree doesn't support tag indices.
-- Python 2.7.18 recommended.
+- Python 3 (tested with 3.14). PlexConnect runs on the standard library alone;
+  see `requirements.txt` for the one optional dependency (Pillow, for fanart
+  backgrounds).
+
+## Secure connections to Plex Media Server
+When you sign in with a plex.tv (MyPlex) account and your Plex Media Server has
+"Secure connections" enabled, PlexConnect now uses the HTTPS `*.plex.direct`
+address that plex.tv advertises for your server - including for local/LAN
+connections - instead of forcing plain HTTP. Certificate and hostname
+verification is handled automatically via Python's default SSL context.
+
+This only applies to servers discovered through a MyPlex sign-in. Servers
+found via local auto-discovery (PlexGDM) or a manually configured IP/port in
+`Settings.cfg` have no way to obtain a verifiable hostname/certificate for the
+local PMS, so those connections remain plain HTTP.
 
 
 ## Installation
